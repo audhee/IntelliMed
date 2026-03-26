@@ -56,7 +56,7 @@ npx expo start
 
 Create a .env file in the root folder:
 
-GEMINI_API_KEY=your_api_key_here
+GEMINI_API_KEY=your_api_key_here......
 
 
 Then import it in your code where required.
