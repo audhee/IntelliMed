@@ -14,8 +14,8 @@ import {
   View,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
-// Mock API service - Replace with your backend
-const API_BASE_URL = 'https://your-backend-api.com'; // Replace with actual backend URL
+// Actual Backend API - Change IP if running on a different device
+const API_BASE_URL = 'http://192.168.68.125:5000'; // Flask backend IP
 
 export default function UploadReportScreen({ navigation }) {
   const [selectedFile, setSelectedFile] = useState(null);
@@ -96,8 +96,8 @@ const openGallery = async () => {
     setUploading(true);
 
     try {
-      // Mock API call - Replace with actual backend integration
-      const mockResult = await mockApiCall(selectedFile);
+      // Connect to the actual backend running at API_BASE_URL
+      const mockResult = await apiCall(selectedFile);
       
       // Save to local storage for demo
       await saveReportLocally(mockResult);
@@ -115,25 +115,29 @@ const openGallery = async () => {
     }
   };
 
-  // Mock API call - Replace with actual backend integration
-  const mockApiCall = (file) => {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve({
-          id: Date.now().toString(),
-          filename: file.name,
-          timestamp: new Date().toISOString(),
-          diagnosis: 'Based on the uploaded report, the blood test shows normal glucose levels (95 mg/dL) and cholesterol within acceptable range (180 mg/dL). Slight elevation in white blood cell count may indicate minor infection.',
-          prescription: 'Continue current medications. Increase water intake to 8-10 glasses daily. Follow up in 2 weeks if symptoms persist. Consider vitamin D supplementation.',
-          confidence: 0.92,
-          recommendations: [
-            'Schedule follow-up appointment in 2 weeks',
-            'Monitor symptoms daily',
-            'Maintain current diet and exercise routine'
-          ]
-        });
-      }, 2000); // Simulate API delay
-    });
+  // Real API call to the Flask backend
+  const apiCall = async (file) => {
+    try {
+      // In a real scenario, we would send the FormData with the image/PDF
+      // For this integration, the backend uses mock OCR when it gets hit on /analyze-report
+      const response = await fetch(`${API_BASE_URL}/api/v1/analyze-report`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ filename: file.name })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error("API Call failed:", error);
+      throw error;
+    }
   };
 
   const saveReportLocally = async (report) => {
