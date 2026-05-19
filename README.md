@@ -1,7 +1,7 @@
 🩺 IntelliMed – AI-Powered Medical Report Assistant
 🚀 Overview
 
-IntelliMed is a React Native healthcare assistant app designed to:
+Intelli - Med is a React Native healthcare assistant app designed to:
 
 Accept medical reports as images and extract key health information.
 
