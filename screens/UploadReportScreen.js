@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 // Actual Backend API - Change IP if running on a different device
-const API_BASE_URL = 'http://192.168.68.125:5000'; // Flask backend IP
+const API_BASE_URL = 'http://192.168.68.120:5000'; // Flask backend IP
 
 export default function UploadReportScreen({ navigation }) {
   const [selectedFile, setSelectedFile] = useState(null);
@@ -96,47 +96,116 @@ const openGallery = async () => {
     setUploading(true);
 
     try {
-      // Connect to the actual backend running at API_BASE_URL
-      const mockResult = await apiCall(selectedFile);
-      
-      // Save to local storage for demo
-      await saveReportLocally(mockResult);
-      
-      setResult(mockResult);
-      
-      // Navigate to result screen
-      navigation.navigate('ReportResult', { result: mockResult });
-      
+      const token = await AsyncStorage.getItem('userToken');
+      if (!token) {
+        Alert.alert('Session Expired', 'Please log in again to upload files.');
+        navigation.navigate('Login');
+        return;
+      }
+
+      // Offline Demo Mode: Simulate a highly premium background AI parsing process!
+      if (token === 'demo-patient-token') {
+        setTimeout(async () => {
+          // Dynamic mock diagnosis generated using the selected file name!
+          const cleanFileName = selectedFile.name ? selectedFile.name.replace(/\.[^/.]+$/, "") : "uploaded_report";
+          const formattedTitle = cleanFileName
+            .split(/[_-]/)
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(" ") + " Analysis";
+
+          const simulatedResult = {
+            id: "report-simulated-" + Date.now().toString().slice(-4),
+            filename: selectedFile.name || "uploaded_report.jpg",
+            title: formattedTitle,
+            timestamp: new Date().toISOString(),
+            confidence: 0.93,
+            diagnosis: `Structured AI parsing of your document "${selectedFile.name}" indicates clinical biomarkers are highly stable. A slight elevation in Red Cell Distribution Width (RDW) is noted, but Hemoglobin and Hematocrit indices remain fully standard.`,
+            prescription: "Maintain high baseline hydration standards. No medical prescription or drug therapy is indicated from this panel.",
+            recommendations: [
+              "Continue drinking 2.5-3.0 liters of filtered water daily to support cellular density.",
+              "Incorporate regular daily physical activity (e.g. 20-30 minutes brisk walking).",
+              "Upload a follow-up metabolic profile in 90 days to establish your longitudinal health baseline."
+            ]
+          };
+
+          await saveReportLocally(simulatedResult);
+          setUploading(false);
+          navigation.navigate('ReportResult', { result: simulatedResult });
+        }, 2000); // 2 second aesthetic loader duration
+        return;
+      }
+
+      // 1. Construct FormData for multi-part standard API upload
+      const formData = new FormData();
+      formData.append('file', {
+        uri: selectedFile.uri,
+        name: selectedFile.name || 'report_upload.jpg',
+        type: selectedFile.type || 'image/jpeg',
+      });
+
+      // 2. Upload file to FastAPI
+      const response = await fetch(`${API_BASE_URL}/api/v1/reports/upload`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+          'Content-Type': 'multipart/form-data',
+        },
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Upload submission failed.');
+      }
+
+      const jobId = data.jobId;
+
+      // 3. Initiate job status polling loop
+      await pollJobStatus(jobId, token);
+
     } catch (error) {
-      Alert.alert('Error', 'Failed to upload file. Please try again.');
-      console.error('Upload error:', error);
-    } finally {
+      console.error('File upload error details:', error);
+      Alert.alert('Upload Failed', error.message || 'Connection error to FastAPI upload service.');
       setUploading(false);
     }
   };
 
-  // Real API call to the Flask backend
-  const apiCall = async (file) => {
+  // Polls the background Celery job status until uvicorn indicates completion
+  const pollJobStatus = async (jobId, token) => {
     try {
-      // In a real scenario, we would send the FormData with the image/PDF
-      // For this integration, the backend uses mock OCR when it gets hit on /analyze-report
-      const response = await fetch(`${API_BASE_URL}/api/v1/analyze-report`, {
-        method: 'POST',
+      const response = await fetch(`${API_BASE_URL}/api/v1/reports/jobs/${jobId}`, {
+        method: 'GET',
         headers: {
-          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
         },
-        body: JSON.stringify({ filename: file.name })
       });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+
+      // 202 Accepted means background parsing is still running
+      if (response.status === 202) {
+        setTimeout(() => pollJobStatus(jobId, token), 2000); // Poll every 2 seconds
+        return;
       }
-      
-      const result = await response.json();
-      return result;
+
+      const data = await response.json();
+
+      if (response.ok) {
+        // Save successfully analyzed report to local cache list
+        await saveReportLocally(data);
+        setResult(data);
+        setUploading(false);
+        
+        // Navigate directly to result interpretation screen
+        navigation.navigate('ReportResult', { result: data });
+      } else {
+        throw new Error(data.detail || 'Analysis task failed on Celery worker.');
+      }
     } catch (error) {
-      console.error("API Call failed:", error);
-      throw error;
+      console.error('Worker polling error details:', error);
+      Alert.alert('Pipeline Error', error.message || 'Failed to poll queue status.');
+      setUploading(false);
     }
   };
 
@@ -147,6 +216,7 @@ const openGallery = async () => {
       
       reports.unshift(report); // Add new report to beginning
       await AsyncStorage.setItem('userReports', JSON.stringify(reports));
+      await AsyncStorage.setItem('recentReports', JSON.stringify(reports));
     } catch (error) {
       console.error('Error saving report locally:', error);
     }
@@ -178,9 +248,22 @@ const openGallery = async () => {
       <ScrollView style={styles.scrollView}>
         {/* Header */}
         <View style={styles.header}>
+          <View style={styles.headerTop}>
+            <TouchableOpacity onPress={() => navigation.navigate('Home')} style={styles.backButton}>
+              <Icon name="arrow-back" size={24} color="#123C58" />
+            </TouchableOpacity>
+            <View style={styles.headerLogoContainer}>
+              <Image 
+                source={require('../assets/logo.png')} 
+                style={styles.headerLogo} 
+                resizeMode="contain" 
+              />
+            </View>
+            <View style={{ width: 24 }} />
+          </View>
           <Text style={styles.title}>Upload Medical Report</Text>
           <Text style={styles.subtitle}>
-            Select an image or PDF of your medical report for AI analysis
+            Select an image or PDF of your medical report for AI analysis by IntelliMed
           </Text>
         </View>
 
@@ -188,16 +271,16 @@ const openGallery = async () => {
         {!selectedFile && (
           <View style={styles.uploadOptions}>
             <TouchableOpacity style={styles.uploadOption} onPress={showImagePicker}>
-              <View style={[styles.uploadIconContainer, { backgroundColor: '#4CAF50' + '20' }]}>
-                <Icon name="camera" size={32} color="#4CAF50" />
+              <View style={[styles.uploadIconContainer, { backgroundColor: '#158C86' + '20' }]}>
+                <Icon name="camera" size={32} color="#158C86" />
               </View>
               <Text style={styles.uploadOptionTitle}>Camera/Gallery</Text>
               <Text style={styles.uploadOptionSubtitle}>Take photo or select from gallery</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.uploadOption} onPress={selectDocument}>
-              <View style={[styles.uploadIconContainer, { backgroundColor: '#2196F3' + '20' }]}>
-                <Icon name="document-text" size={32} color="#2196F3" />
+              <View style={[styles.uploadIconContainer, { backgroundColor: '#123C58' + '20' }]}>
+                <Icon name="document-text" size={32} color="#123C58" />
               </View>
               <Text style={styles.uploadOptionTitle}>Documents</Text>
               <Text style={styles.uploadOptionSubtitle}>Select PDF or image files</Text>
@@ -258,22 +341,22 @@ const openGallery = async () => {
           <Text style={styles.guidelinesTitle}>Upload Guidelines</Text>
           
           <View style={styles.guideline}>
-            <Icon name="checkmark-circle" size={16} color="#4CAF50" />
+            <Icon name="checkmark-circle" size={16} color="#158C86" />
             <Text style={styles.guidelineText}>Ensure report is clearly visible and readable</Text>
           </View>
           
           <View style={styles.guideline}>
-            <Icon name="checkmark-circle" size={16} color="#4CAF50" />
+            <Icon name="checkmark-circle" size={16} color="#158C86" />
             <Text style={styles.guidelineText}>Supported formats: JPG, PNG, PDF</Text>
           </View>
           
           <View style={styles.guideline}>
-            <Icon name="checkmark-circle" size={16} color="#4CAF50" />
+            <Icon name="checkmark-circle" size={16} color="#158C86" />
             <Text style={styles.guidelineText}>Maximum file size: 10MB</Text>
           </View>
           
           <View style={styles.guideline}>
-            <Icon name="information-circle" size={16} color="#2196F3" />
+            <Icon name="information-circle" size={16} color="#123C58" />
             <Text style={styles.guidelineText}>Your data is processed securely and confidentially</Text>
           </View>
         </View>
@@ -289,7 +372,7 @@ const openGallery = async () => {
             style={styles.viewHistoryButton}
             onPress={() => navigation.navigate('Home')}
           >
-            <Icon name="time" size={20} color="#2196F3" />
+            <Icon name="time" size={20} color="#123C58" />
             <Text style={styles.viewHistoryText}>View History</Text>
           </TouchableOpacity>
         </View>
@@ -308,18 +391,39 @@ const styles = StyleSheet.create({
   },
   header: {
     padding: 20,
+    paddingTop: 45,
     backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  backButton: {
+    padding: 4,
+  },
+  headerLogoContainer: {
+    width: 130,
+    height: 35,
+  },
+  headerLogo: {
+    width: '100%',
+    height: '100%',
   },
   title: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#123C58',
+    marginTop: 10,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#666',
-    marginTop: 8,
-    lineHeight: 22,
+    marginTop: 6,
+    lineHeight: 20,
   },
   uploadOptions: {
     padding: 20,
@@ -415,12 +519,12 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   uploadButton: {
-    backgroundColor: '#2196F3',
+    backgroundColor: '#123C58',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 15,
-    borderRadius: 10,
+    borderRadius: 12,
   },
   uploadButtonDisabled: {
     opacity: 0.6,
@@ -491,11 +595,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 12,
     paddingHorizontal: 20,
-    backgroundColor: '#2196F3' + '15',
+    backgroundColor: '#123C58' + '15',
     borderRadius: 8,
   },
   viewHistoryText: {
-    color: '#2196F3',
+    color: '#123C58',
     fontSize: 14,
     fontWeight: '600',
     marginLeft: 8,

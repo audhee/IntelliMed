@@ -143,7 +143,7 @@ useEffect(() => {
             <Stack.Screen 
               name="ReportResult" 
               component={ReportResultScreen}
-              options={{ headerShown: true, title: 'Report Results' }}
+              options={{ headerShown: false }}
             />
           </>
         )}

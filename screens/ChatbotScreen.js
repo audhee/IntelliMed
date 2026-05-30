@@ -10,25 +10,53 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Image,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export default function ChatbotScreen() {
+// API Connection IP - Enters port 5000 for local FastAPI
+const API_BASE_URL = 'http://192.168.68.120:5000';
+
+export default function ChatbotScreen({ route }) {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [reportContext, setReportContext] = useState(null);
   const flatListRef = useRef(null);
 
   useEffect(() => {
     // Initial greeting message
     const initialMessage = {
       id: '1',
-      text: 'Hello! I\'m your AI health assistant. I can help you with general health questions, medication information, and provide health tips. How can I assist you today?',
+      text: 'Hello! I\'m your IntelliMed AI Health Assistant, powered by our Longitudinal Health Intelligence. I can help you interpret medical reports, explain clinical findings, advise on personalized dietary support, or answer fitness and medication safety questions. How can I assist you today?',
       isBot: true,
       timestamp: new Date().toISOString(),
     };
     setMessages([initialMessage]);
   }, []);
+
+  // Capture report context from parameters
+  useEffect(() => {
+    if (route?.params?.reportContext) {
+      const context = route.params.reportContext;
+      setReportContext(context);
+      
+      const contextMsg = {
+        id: 'report_context_loaded',
+        text: `📊 **Medical Report Context Loaded**:\n• **File**: ${context.filename || 'blood_report.jpg'}\n• **Findings**: ${context.diagnosis}\n\n*I am now primed with your lab report details. Ask me any questions about your results, diet recommendations, or next steps!*`,
+        isBot: true,
+        timestamp: new Date().toISOString(),
+      };
+      
+      setMessages(prev => {
+        if (prev.some(m => m.id === 'report_context_loaded')) {
+          return prev.map(m => m.id === 'report_context_loaded' ? contextMsg : m);
+        }
+        return [...prev, contextMsg];
+      });
+    }
+  }, [route?.params?.reportContext]);
 
   const sendMessage = async () => {
     if (!inputText.trim()) return;
@@ -71,84 +99,132 @@ export default function ChatbotScreen() {
     }
   };
 
-  // FIXED: Enhanced Gemini API integration
+  // FIXED: Enhanced Gemini API integration with live FastAPI connection
   const simulateBotResponse = async (userInput) => {
-  // Simulate a small delay to make it feel like AI processing
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  
-  const input = userInput.toLowerCase().trim();
-  
-  // Fever responses
-  if (input.includes('fever') || input.includes('temperature') || input.includes('hot')) {
-    return `For fever management:
+    try {
+      const token = await AsyncStorage.getItem('userToken');
+      if (!token) throw new Error("No active JWT session token found.");
 
-🌡️ **Monitor your temperature** regularly
-💧 **Stay hydrated** - drink plenty of water, clear broths
-🛏️ **Rest** - get adequate sleep and avoid strenuous activities
-💊 **Fever reducers** - acetaminophen or ibuprofen as directed
-❄️ **Cool compresses** - apply to forehead or wrists
+      // 1. Send live POST query to FastAPI Gemini Chat router
+      const response = await fetch(`${API_BASE_URL}/api/v1/reports/chat`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          query: userInput,
+          report_context: reportContext, // Pass loaded report findings dynamically!
+        }),
+      });
 
-**Seek medical attention if:**
-• Fever above 103°F (39.4°C)
-• Fever lasts more than 3 days
-• Accompanied by severe symptoms
-• Difficulty breathing or chest pain
+      const data = await response.json();
+      if (response.ok && data.response) {
+        return data.response; // Return genuine live Gemini-generated advice!
+      } else {
+        throw new Error(data.detail || "FastAPI Gemini processing failure.");
+      }
+    } catch (error) {
+      console.warn("FastAPI chatbot down, falling back to clinical rules:", error);
+    }
 
-**For emergencies, call 108**
+    // ----------------------------------------------------
+    // CLINICAL RESILIENT LOCAL FALLBACK (Offline Support)
+    // ----------------------------------------------------
+    const input = userInput.toLowerCase().trim();
+    
+    // Dynamic report-specific local fallback if uvicorn is offline
+    if (reportContext) {
+      const lowerDiagnosis = (reportContext.diagnosis || '').toLowerCase();
+      const lowerPrescription = (reportContext.prescription || '').toLowerCase();
+      const lowerRecs = (reportContext.recommendations || []).join(' ').toLowerCase();
+      const combinedContextText = `${lowerDiagnosis} ${lowerPrescription} ${lowerRecs}`;
 
-*This is general information. Always consult healthcare professionals for proper diagnosis and treatment.*`;
-  }
-  
-  // Headache responses
-  if (input.includes('headache') || input.includes('head pain') || input.includes('migraine')) {
-    return `For headache relief:
+      // 1. If asking about report, explain diagnosis, etc.
+      if (
+        input.includes('my report') || 
+        input.includes('my result') || 
+        input.includes('explain') || 
+        input.includes('diagnosis') || 
+        input.includes('prescription') ||
+        input.includes('findings') ||
+        input.includes('what should i do')
+      ) {
+        const recs = reportContext.recommendations || [];
+        const recList = recs.length > 0 
+          ? recs.map((rec, i) => `• ${rec}`).join('\n')
+          : '• Monitor your daily dietary intake.\n• Maintain adequate hydration levels.';
+          
+        return `📋 **Your Lab Report Advisory Context**:\n\n**AI Diagnosis Summary**:\n${reportContext.diagnosis || 'Standard blood panel results.'}\n\n**Suggested Treatment / Advices**:\n${reportContext.prescription || 'Lifestyle monitoring.'}\n\n**Actionable Recommendations**:\n${recList}\n\n*Remember, these summaries represent AI findings. Always consult your primary care doctor to discuss these metrics.*`;
+      }
 
-🛏️ **Rest** in a quiet, dark room
-💧 **Stay hydrated** - dehydration can worsen headaches
-❄️ **Cold/warm compress** - apply to head, neck, or shoulders
-💆 **Gentle massage** - temples, neck, and shoulder areas
-💊 **Pain relief** - over-the-counter medications as directed
-😴 **Regular sleep** - maintain consistent sleep schedule
+      // 2. If asking about eating/diet/food/nutrition with active report context
+      if (
+        input.includes('diet') || 
+        input.includes('nutrition') || 
+        input.includes('food') || 
+        input.includes('eat') || 
+        input.includes('eating') ||
+        input.includes('drink')
+      ) {
+        // Glycemic / Metabolic issues
+        if (
+          combinedContextText.includes('glucose') || 
+          combinedContextText.includes('sugar') || 
+          combinedContextText.includes('diabetic') || 
+          combinedContextText.includes('glycemic')
+        ) {
+          return `🥦 **Recommended Diet Plan (Metabolic/Glycemic Support)**:\n\nBased on your elevated Fasting Glucose metrics in your active report, we recommend a low-glycemic eating pattern to support healthy metabolic responses:\n\n• **Include**: Abundant leafy greens (spinach, broccoli, kale), slow-digesting fibers (chia seeds, oats, quinoa), and clean proteins (lentils, fish, chicken, eggs).\n• **Avoid**: Refined flours, added processed sugars, sweet carbonated beverages, and simple white breads.\n• **Tip**: Pair carbohydrates with fiber and healthy fats to minimize post-prandial blood sugar spikes, and record your daily energy indexes!`;
+        }
 
-**See a doctor if:**
-• Sudden severe headache
-• Headache with fever, stiff neck, vision changes
-• Frequent or worsening headaches
-• Headache after head injury
+        // Vitamin D deficiency
+        if (
+          combinedContextText.includes('vitamin d') || 
+          combinedContextText.includes('vit d') || 
+          combinedContextText.includes('d3') || 
+          combinedContextText.includes('calcium')
+        ) {
+          return `☀️ **Recommended Diet Plan (Vitamin D & Bone Density Support)**:\n\nBased on your lower Vitamin D scores in your active report, we recommend focusing on vitamin-dense foods and safe sunlight absorption:\n\n• **Include**: Fat-soluble foods (fatty fish like salmon/mackerel, egg yolks), calcium-reinforced milk or plant alternatives, and fortified mushrooms.\n• **Outdoor lifestyle**: Target 10-15 minutes of safe midday sunlight daily, which prompts natural synthesis.\n• **Tip**: Vitamin D3 works in synergy with Vitamin K2 and Magnesium, so incorporate seeds, nuts, and leafy greens too!`;
+        }
 
-**Emergency: Call 108**
+        // Anemia / Low Hemoglobin / Iron
+        if (
+          combinedContextText.includes('hemoglobin') || 
+          combinedContextText.includes('iron') || 
+          combinedContextText.includes('anemi') || 
+          combinedContextText.includes('rbc') || 
+          combinedContextText.includes('red blood')
+        ) {
+          return `🥩 **Recommended Diet Plan (Iron & Red Blood Cell Support)**:\n\nBased on your red blood cell indicators (e.g. Hemoglobin), we recommend focusing on hematinic foods to optimize energy baselines:\n\n• **Heme Iron (High bioavailability)**: Lean beef, chicken, or shellfish.\n• **Non-Heme Iron (Plant-based)**: Organic spinach, kidney beans, lentils, pumpkin seeds.\n• **Crucial tip**: Pair non-heme iron with Vitamin C (e.g. squeeze lemon juice on your salad) to dramatically increase absorption, and avoid coffee/tea within 1 hour of meals!`;
+        }
 
-*Consult healthcare professionals for persistent or severe headaches.*`;
-  }
-  
-  // Diet and nutrition
-  if (input.includes('diet') || input.includes('nutrition') || input.includes('food') || input.includes('eating')) {
-    return `Healthy diet tips:
+        // Default customized diet using active report context
+        return `🥗 **Report-Tailored Nutritional Guidelines**:\n\nLooking at your active medical report summary ("*${reportContext.diagnosis || 'Lifestyle monitoring panel'}*"), we recommend a balanced anti-inflammatory nutritional pattern:\n\n• **50% of your plate**: Color-rich leafy vegetables, cruciferous greens, and low-fructose berries.\n• **25% of your plate**: Cellular-building lean proteins (e.g. legumes, wild-caught fish, organic poultry).\n• **25% of your plate**: High-fiber complex whole grains (e.g. brown rice, oats, barley).\n• **Actionable advice**: Review the recommended steps in your report card:\n${(reportContext.recommendations || []).slice(0, 2).map(r => `  • ${r}`).join('\n') || '  • Maintain regular physical activity and baseline metrics.'}\n\n*Consult a registered dietitian or your physician before making significant dietary modifications.*`;
+      }
+    }
 
-🥗 **Balanced meals:**
-• 50% fruits and vegetables
-• 25% lean proteins (chicken, fish, legumes)
-• 25% whole grains (brown rice, quinoa, oats)
+    // 3. Fallback when there is no report context
+    if (
+      input.includes('diet') || 
+      input.includes('nutrition') || 
+      input.includes('food') || 
+      input.includes('eat') || 
+      input.includes('eating') ||
+      input.includes('drink')
+    ) {
+      return `🥗 **General Healthy Nutrition Guidelines**:
 
-💧 **Hydration:** 8-10 glasses of water daily
+To promote long-term vitality, focus on a balanced Mediterranean-style eating pattern:
 
-🚫 **Limit:**
-• Processed and packaged foods
-• Sugary drinks and excessive sweets
-• Trans fats and excessive salt
+• **50% plate**: Color-rich leafy vegetables and fresh low-fructose fruits.
+• **25% plate**: Lean, cell-building proteins (e.g. fish, poultry, legumes).
+• **25% plate**: Complex high-fiber whole grains (e.g. brown rice, oats).
+• **Hydration**: Aim for 8-10 glasses of pure water daily to maintain metabolic pathways.
+• **Avoid**: Processed and packaged foods, refined simple sugars, carbonated beverages, trans fats, and excess sodium.
 
-⏰ **Meal timing:**
-• Eat regular meals
-• Don't skip breakfast
-• Smaller, frequent meals if preferred
-
-🌿 **Include:**
-• Nuts and seeds
-• Healthy fats (olive oil, avocado)
-• Plenty of fiber
-
-*Consult a registered dietitian for personalized nutrition plans, especially if you have health conditions.*`;
-  }
+*Consult a registered dietitian or your physician for personalized dietary plans tailored to your specific metabolic baselines.*`;
+    }
   
   // Exercise and fitness
   if (input.includes('exercise') || input.includes('workout') || input.includes('fitness') || input.includes('physical activity')) {
@@ -374,7 +450,7 @@ I can provide general health information, but cannot replace professional medica
     ]}>
       {item.isBot && (
         <View style={styles.botAvatar}>
-          <Icon name="medical" size={16} color="#fff" />
+          <Icon name="shield-checkmark" size={16} color="#fff" />
         </View>
       )}
       <View style={[
@@ -422,21 +498,28 @@ I can provide general health information, but cannot replace professional medica
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <View style={styles.botHeaderAvatar}>
-            <Icon name="medical" size={20} color="#fff" />
+            <Icon name="shield-checkmark" size={20} color="#fff" />
           </View>
           <View>
-            <Text style={styles.headerTitle}>Health Assistant</Text>
+            <Text style={styles.headerTitle}>IntelliMed Assistant</Text>
             <Text style={styles.headerStatus}>Online</Text>
           </View>
+        </View>
+        <View style={styles.headerLogoContainer}>
+          <Image 
+            source={require('../assets/logo.png')} 
+            style={styles.headerLogo} 
+            resizeMode="contain" 
+          />
         </View>
         <TouchableOpacity 
           style={styles.infoButton}
           onPress={() => Alert.alert(
-            'Health Assistant',
-            'I can help with general health questions, medication info, and health tips. For emergencies, please call 108 or visit your nearest hospital.'
+            'IntelliMed Assistant',
+            'I can help with questions about your medical reports, nutrition/diet, exercise, and general health guidelines. Powered by IntelliMed Longitudinal Health Intelligence.'
           )}
         >
-          <Icon name="information-circle-outline" size={24} color="#666" />
+          <Icon name="information-circle-outline" size={24} color="#123C58" />
         </TouchableOpacity>
       </View>
 
@@ -455,11 +538,11 @@ I can provide general health information, but cannot replace professional medica
       {isTyping && (
         <View style={styles.typingContainer}>
           <View style={styles.botAvatar}>
-            <Icon name="medical" size={16} color="#fff" />
+            <Icon name="shield-checkmark" size={16} color="#fff" />
           </View>
           <View style={styles.typingBubble}>
             <ActivityIndicator size="small" color="#666" />
-            <Text style={styles.typingText}>Health Assistant is typing...</Text>
+            <Text style={styles.typingText}>IntelliMed is typing...</Text>
           </View>
         </View>
       )}
@@ -516,7 +599,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
-    paddingTop: 40,
+    paddingTop: 45,
+  },
+  headerLogoContainer: {
+    width: 100,
+    height: 30,
+  },
+  headerLogo: {
+    width: '100%',
+    height: '100%',
   },
   headerLeft: {
     flexDirection: 'row',
@@ -526,7 +617,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#4CAF50',
+    backgroundColor: '#158C86',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -562,7 +653,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#4CAF50',
+    backgroundColor: '#158C86',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 8,
@@ -580,7 +671,7 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 4,
   },
   userBubble: {
-    backgroundColor: '#2196F3',
+    backgroundColor: '#123C58',
     borderBottomRightRadius: 4,
     marginLeft: 40,
   },
@@ -675,7 +766,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#2196F3',
+    backgroundColor: '#123C58',
     justifyContent: 'center',
     alignItems: 'center',
   },

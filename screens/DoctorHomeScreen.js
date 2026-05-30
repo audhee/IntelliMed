@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Alert,
   FlatList,
+  Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -72,11 +73,7 @@ const DoctorHomeScreen = ({ navigation }) => {
         onPress: async () => {
           try {
             await AsyncStorage.multiRemove(['userToken', 'userRole', 'userName', 'userEmail']);
-            // Navigate back to login
-            navigation.reset({
-              index: 0,
-              routes: [{ name: 'Login' }],
-            });
+            // App.js periodic auth check will automatically detect token deletion and redirect to Login screen
           } catch (error) {
             console.error('Error during logout:', error);
           }
@@ -116,7 +113,7 @@ const DoctorHomeScreen = ({ navigation }) => {
       title: 'Total Reports',
       value: '156',
       icon: 'document-text',
-      color: '#2196F3',
+      color: '#123C58',
       change: '+12',
     },
     {
@@ -124,7 +121,7 @@ const DoctorHomeScreen = ({ navigation }) => {
       title: 'Analyzed Today',
       value: '23',
       icon: 'checkmark-circle',
-      color: '#4CAF50',
+      color: '#158C86',
       change: '+5',
     },
     {
@@ -132,7 +129,7 @@ const DoctorHomeScreen = ({ navigation }) => {
       title: 'Pending Review',
       value: '8',
       icon: 'time',
-      color: '#FF9800',
+      color: '#F7B018',
       change: '-2',
     },
   ];
@@ -173,13 +170,21 @@ const DoctorHomeScreen = ({ navigation }) => {
     <ScrollView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Good morning,</Text>
-          <Text style={styles.userName}>Dr. {userEmail.split('@')[0]}</Text>
+        <View style={styles.headerLogoContainer}>
+          <Image 
+            source={require('../assets/logo.png')} 
+            style={styles.headerLogo} 
+            resizeMode="contain" 
+          />
         </View>
         <TouchableOpacity onPress={handleLogout}>
-          <Icon name="log-out-outline" size={24} color="#666" />
+          <Icon name="log-out-outline" size={24} color="#123C58" />
         </TouchableOpacity>
+      </View>
+
+      <View style={styles.welcomeSection}>
+        <Text style={styles.greeting}>Good morning,</Text>
+        <Text style={styles.userName}>Dr. {userEmail.split('@')[0]}</Text>
       </View>
 
       {/* Stats Cards */}
@@ -226,17 +231,17 @@ const DoctorHomeScreen = ({ navigation }) => {
         <Text style={styles.sectionTitle}>Quick Actions</Text>
         <View style={styles.quickActionsGrid}>
           <TouchableOpacity style={styles.quickActionCard}>
-            <Icon name="analytics" size={24} color="#2196F3" />
+            <Icon name="analytics" size={24} color="#123C58" />
             <Text style={styles.quickActionText}>Analytics</Text>
           </TouchableOpacity>
           
           <TouchableOpacity style={styles.quickActionCard}>
-            <Icon name="people" size={24} color="#4CAF50" />
+            <Icon name="people" size={24} color="#158C86" />
             <Text style={styles.quickActionText}>Patients</Text>
           </TouchableOpacity>
           
           <TouchableOpacity style={styles.quickActionCard}>
-            <Icon name="settings" size={24} color="#FF9800" />
+            <Icon name="settings" size={24} color="#F7B018" />
             <Text style={styles.quickActionText}>Settings</Text>
           </TouchableOpacity>
           
@@ -260,18 +265,33 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 30,
-    paddingTop: 50,
+    paddingTop: 45,
+    paddingBottom: 15,
     backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  headerLogoContainer: {
+    width: 140,
+    height: 40,
+  },
+  headerLogo: {
+    width: '100%',
+    height: '100%',
+  },
+  welcomeSection: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 10,
   },
   greeting: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#666',
   },
   userName: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#123C58',
     textTransform: 'capitalize',
   },
   statsContainer: {
@@ -335,7 +355,7 @@ const styles = StyleSheet.create({
   },
   seeAll: {
     fontSize: 14,
-    color: '#4CAF50',
+    color: '#158C86',
     fontWeight: '600',
   },
   reportCard: {
@@ -417,7 +437,7 @@ const styles = StyleSheet.create({
   },
   viewButtonText: {
     fontSize: 14,
-    color: '#2196F3',
+    color: '#123C58',
     fontWeight: '600',
     marginRight: 5,
   },
@@ -443,7 +463,7 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 8,
     fontWeight: '600',
-  } // <-- Missing closing braces here
-}); // <-- And here
+  }
+});
 
 export default DoctorHomeScreen;
