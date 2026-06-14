@@ -1,4 +1,4 @@
-# 🩺 IntelliMed — AI-Powered Longitudinal Health Intelligence
+# 🩺 IntelliMed — AI-Powered Longitudinal Health Intelligence...
 
 ## 🚀 Overview
 **IntelliMed** is a premium React Native healthcare application designed to deliver **AI-Powered Longitudinal Health Intelligence**. It provides patients and clinical practitioners with highly accurate, structured clinical OCR interpretations, AI chatbot guidance, and longitudinal diagnostic history tracking.
